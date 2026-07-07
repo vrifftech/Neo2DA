@@ -1,0 +1,154 @@
+cmake_minimum_required(VERSION 3.16)
+
+if(POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
+
+project(Neo2DACpp VERSION 1.1.0 DESCRIPTION "C++17/wxWidgets 2DA table editor" LANGUAGES CXX)
+if(MSVC)
+    foreach(_neo_runtime_flag_var IN ITEMS
+        CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_C_FLAGS_MINSIZEREL
+        CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_MINSIZEREL)
+        if(DEFINED ${_neo_runtime_flag_var})
+            string(REGEX REPLACE "(^|[ /-])MDd?($|[ ]|/)" "\\1MT\\2" ${_neo_runtime_flag_var} "${${_neo_runtime_flag_var}}")
+        endif()
+    endforeach()
+endif()
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+function(neo_force_static_msvc_runtime target_name)
+    if(MSVC AND TARGET ${target_name})
+        set_property(TARGET ${target_name} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+        target_compile_options(${target_name} PRIVATE
+            $<$<CONFIG:Debug>:/MTd>
+            $<$<NOT:$<CONFIG:Debug>>:/MT>
+        )
+    endif()
+endfunction()
+
+function(neo_force_static_msvc_runtime_for_directory_targets)
+    if(MSVC)
+        get_property(_neo_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+        foreach(_neo_target IN LISTS _neo_targets)
+            get_target_property(_neo_type ${_neo_target} TYPE)
+            if(NOT _neo_type STREQUAL "INTERFACE_LIBRARY" AND NOT _neo_type STREQUAL "UTILITY")
+                neo_force_static_msvc_runtime(${_neo_target})
+            endif()
+        endforeach()
+    endif()
+endfunction()
+
+include(GNUInstallDirs)
+
+option(NEO2DA_BUILD_CLI "Build the Neo2DA command-line utility" ON)
+
+add_library(neo2da_core
+    src/core/Common.cpp
+    src/core/TwoDAFile.cpp
+    src/shared/tabular/TabularData.cpp
+    src/shared/tslpatcher/TslPatcher.cpp
+)
+target_include_directories(neo2da_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/src/shared/tabular ${CMAKE_CURRENT_SOURCE_DIR}/src/shared/tslpatcher)
+target_compile_features(neo2da_core PUBLIC cxx_std_17)
+if(MSVC)
+    target_compile_options(neo2da_core PRIVATE /W4 /permissive-)
+else()
+    target_compile_options(neo2da_core PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+if(NEO2DA_BUILD_CLI)
+    add_executable(neo2da-cli src/cli/main.cpp)
+    target_link_libraries(neo2da-cli PRIVATE neo2da_core)
+    if(MSVC)
+        target_compile_options(neo2da-cli PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(neo2da-cli PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    install(TARGETS neo2da-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
+
+option(NEO2DA_BUILD_WX_GUI "Build the wxWidgets desktop GUI when wxWidgets is available" ON)
+option(NEO2DA_REQUIRE_WX_GUI "Fail configure if wxWidgets is unavailable while NEO2DA_BUILD_WX_GUI is ON" OFF)
+
+function(neo2da_link_wx target_name)
+    target_compile_definitions(${target_name} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+
+    set(_wx_targets)
+    foreach(_wx_target IN ITEMS wx::core wx::base wx::adv wxWidgets::wxWidgets)
+        if(TARGET ${_wx_target})
+            list(APPEND _wx_targets ${_wx_target})
+        endif()
+    endforeach()
+
+    if(_wx_targets)
+        target_link_libraries(${target_name} PRIVATE ${_wx_targets})
+    else()
+        if(wxWidgets_USE_FILE)
+            include(${wxWidgets_USE_FILE})
+        endif()
+        target_include_directories(${target_name} SYSTEM PRIVATE ${wxWidgets_INCLUDE_DIRS})
+        target_compile_definitions(${target_name} PRIVATE ${wxWidgets_DEFINITIONS})
+        target_link_libraries(${target_name} PRIVATE ${wxWidgets_LIBRARIES})
+    endif()
+
+    neo_force_static_msvc_runtime(${target_name})
+endfunction()
+
+if(NEO2DA_BUILD_WX_GUI)
+    find_package(wxWidgets CONFIG QUIET COMPONENTS core base adv)
+    if(NOT wxWidgets_FOUND)
+        find_package(wxWidgets QUIET COMPONENTS core base adv)
+    endif()
+
+    if(wxWidgets_FOUND OR TARGET wx::core OR TARGET wxWidgets::wxWidgets)
+        set(NEO2DA_WX_SOURCES src/wx/main.cpp)
+        if(WIN32)
+            list(APPEND NEO2DA_WX_SOURCES resources/neo2da.rc)
+        endif()
+
+        if(WIN32)
+            add_executable(Neo2DA WIN32 ${NEO2DA_WX_SOURCES})
+        elseif(APPLE)
+            add_executable(Neo2DA MACOSX_BUNDLE ${NEO2DA_WX_SOURCES})
+        else()
+            add_executable(Neo2DA ${NEO2DA_WX_SOURCES})
+        endif()
+        target_link_libraries(Neo2DA PRIVATE neo2da_core)
+        target_include_directories(Neo2DA PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
+        neo2da_link_wx(Neo2DA)
+        target_compile_features(Neo2DA PRIVATE cxx_std_17)
+        if(MSVC)
+            target_compile_options(Neo2DA PRIVATE /W4 /permissive-)
+        else()
+            target_compile_options(Neo2DA PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+        install(TARGETS Neo2DA
+            BUNDLE DESTINATION .
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        )
+
+        if(UNIX AND NOT APPLE)
+            foreach(NEO_ICON_SIZE 16 24 32 48 64 128 256)
+                install(FILES resources/icons/${NEO_ICON_SIZE}x${NEO_ICON_SIZE}/neo2da.png
+                    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/${NEO_ICON_SIZE}x${NEO_ICON_SIZE}/apps
+                    RENAME neo2da.png
+                )
+            endforeach()
+            configure_file(resources/neo2da.desktop.in ${CMAKE_CURRENT_BINARY_DIR}/neo2da.desktop @ONLY)
+            install(FILES ${CMAKE_CURRENT_BINARY_DIR}/neo2da.desktop
+                DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications
+            )
+        endif()
+    elseif(NEO2DA_REQUIRE_WX_GUI)
+        message(FATAL_ERROR "wxWidgets was not found, but NEO2DA_REQUIRE_WX_GUI is ON. With vcpkg, run: C:/vcpkg/vcpkg.exe install wxwidgets:x64-windows-static and configure with -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static.")
+    else()
+        message(WARNING "wxWidgets was not found. Core and CLI targets will still build; install wxWidgets to build Neo2DA.")
+    endif()
+endif()
+
+neo_force_static_msvc_runtime_for_directory_targets()

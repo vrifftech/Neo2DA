@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Neo2DA
+Comment=2DA table editor
+Exec=Neo2DA %f
+Icon=neo2da
+Terminal=false
+Categories=Utility;Development;

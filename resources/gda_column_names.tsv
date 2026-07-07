@@ -1,0 +1,15 @@
+# Dragon Age GDA/G2DA column-name dictionary.
+# Format: hash<TAB>name. Hash is CRC32(lowercase UTF-16LE column name).
+# Extra project-specific names can be placed beside a .gda as gda_column_names.tsv
+# or referenced with NEO2DA_GDA_COLUMN_NAMES.
+0x66FBC936	ID
+0x1BD4C5A2	COUNT
+0xB49CA166	label
+0xABD5A48D	worksheet
+0xF333FE09	script
+0xB22D0123	name
+0x88578372	tag
+0x3FC13DE1	value
+0x03C7F222	condition
+0x9E52DA7F	plot
+0x5C78C4A3	resource
