@@ -266,7 +266,7 @@ struct GdaStructTemplate {
 };
 
 std::uint32_t readU32At(const std::vector<unsigned char>& data, std::size_t offset, const char* what) {
-    if (offset > data.size() || data.size() - offset < 4) {
+    if (data.size() < 4 || offset > data.size() - 4) {
         throw TwoDAError(std::string("Malformed GDA: unable to read ") + what + ".", 3);
     }
     return static_cast<std::uint32_t>(data[offset]) |
@@ -276,7 +276,7 @@ std::uint32_t readU32At(const std::vector<unsigned char>& data, std::size_t offs
 }
 
 std::uint16_t readU16At(const std::vector<unsigned char>& data, std::size_t offset, const char* what) {
-    if (offset > data.size() || data.size() - offset < 2) {
+    if (data.size() < 2 || offset > data.size() - 2) {
         throw TwoDAError(std::string("Malformed GDA: unable to read ") + what + ".", 3);
     }
     return static_cast<std::uint16_t>(data[offset]) |
@@ -284,7 +284,7 @@ std::uint16_t readU16At(const std::vector<unsigned char>& data, std::size_t offs
 }
 
 std::array<char, 4> readTagAt(const std::vector<unsigned char>& data, std::size_t offset, const char* what) {
-    if (offset > data.size() || data.size() - offset < 4) {
+    if (data.size() < 4 || offset > data.size() - 4) {
         throw TwoDAError(std::string("Malformed GDA: unable to read ") + what + ".", 3);
     }
     return std::array<char, 4>{{static_cast<char>(data[offset]), static_cast<char>(data[offset + 1]), static_cast<char>(data[offset + 2]), static_cast<char>(data[offset + 3])}};
@@ -601,7 +601,8 @@ std::uint32_t crc32Utf16Lower(const std::string& text) {
         }
     };
     const std::string lower = lowerAscii(text);
-    for (unsigned char ch : lower) {
+    for (char raw : lower) {
+        const auto ch = static_cast<unsigned char>(raw);
         feed(ch);
         feed(0);
     }

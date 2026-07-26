@@ -5,7 +5,33 @@ if(POLICY CMP0091)
 endif()
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
 
-project(Neo2DACpp VERSION 1.1.0 DESCRIPTION "C++17/wxWidgets 2DA table editor" LANGUAGES CXX)
+project(Neo2DACpp VERSION 1.2.0 DESCRIPTION "C++17/wxWidgets 2DA table editor" LANGUAGES CXX)
+set(NEOSHARED_ROOT "" CACHE PATH
+    "Path to the neoshared source repository; defaults to ../neoshared")
+
+if(NOT NEOSHARED_ROOT AND DEFINED ENV{NEOSHARED_ROOT}
+   AND NOT "$ENV{NEOSHARED_ROOT}" STREQUAL "")
+    set(NEOSHARED_ROOT "$ENV{NEOSHARED_ROOT}" CACHE PATH
+        "Path to the neoshared source repository" FORCE)
+endif()
+
+if(NOT NEOSHARED_ROOT)
+    get_filename_component(NEOSHARED_ROOT
+        "${CMAKE_CURRENT_LIST_DIR}/../neoshared" ABSOLUTE)
+else()
+    get_filename_component(NEOSHARED_ROOT "${NEOSHARED_ROOT}" ABSOLUTE
+        BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+endif()
+set(NEOSHARED_ROOT "${NEOSHARED_ROOT}" CACHE PATH
+    "Path to the neoshared source repository" FORCE)
+
+if(NOT EXISTS "${NEOSHARED_ROOT}/CMakeLists.txt")
+    message(FATAL_ERROR
+        "neoshared was not found at '${NEOSHARED_ROOT}'. "
+        "Clone the neoshared repository beside this repository, or configure "
+        "with -DNEOSHARED_ROOT=/path/to/neoshared.")
+endif()
+
 if(MSVC)
     foreach(_neo_runtime_flag_var IN ITEMS
         CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_C_FLAGS_MINSIZEREL
@@ -44,15 +70,23 @@ endfunction()
 
 include(GNUInstallDirs)
 
+message(STATUS "Using neoshared: ${NEOSHARED_ROOT}")
+include("${NEOSHARED_ROOT}/cmake/NeoMinimalRelease.cmake")
+if(NOT TARGET neoshared::wx)
+    add_subdirectory("${NEOSHARED_ROOT}"
+        "${CMAKE_CURRENT_BINARY_DIR}/neoshared" EXCLUDE_FROM_ALL)
+endif()
+
+
+
 option(NEO2DA_BUILD_CLI "Build the Neo2DA command-line utility" ON)
 
 add_library(neo2da_core
     src/core/Common.cpp
     src/core/TwoDAFile.cpp
-    src/shared/tabular/TabularData.cpp
-    src/shared/tslpatcher/TslPatcher.cpp
 )
-target_include_directories(neo2da_core PUBLIC src ${CMAKE_CURRENT_SOURCE_DIR}/src/shared/tabular ${CMAKE_CURRENT_SOURCE_DIR}/src/shared/tslpatcher)
+target_include_directories(neo2da_core PUBLIC src)
+target_link_libraries(neo2da_core PUBLIC neoshared::tabular neoshared::tslpatcher)
 target_compile_features(neo2da_core PUBLIC cxx_std_17)
 if(MSVC)
     target_compile_options(neo2da_core PRIVATE /W4 /permissive-)
@@ -79,7 +113,7 @@ function(neo2da_link_wx target_name)
     target_compile_definitions(${target_name} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
     set(_wx_targets)
-    foreach(_wx_target IN ITEMS wx::core wx::base wx::adv wxWidgets::wxWidgets)
+    foreach(_wx_target IN ITEMS wx::core wx::base wx::adv wx::aui wxWidgets::wxWidgets)
         if(TARGET ${_wx_target})
             list(APPEND _wx_targets ${_wx_target})
         endif()
@@ -100,9 +134,31 @@ function(neo2da_link_wx target_name)
 endfunction()
 
 if(NEO2DA_BUILD_WX_GUI)
-    find_package(wxWidgets CONFIG QUIET COMPONENTS core base adv)
-    if(NOT wxWidgets_FOUND)
-        find_package(wxWidgets QUIET COMPONENTS core base adv)
+    set(NEO2DA_WX_COMPONENTS core base adv aui)
+    # vcpkg provides CMake package targets such as wx::core and wx::base.
+    # Prefer CONFIG mode on Windows/vcpkg, but keep FindwxWidgets/wx-config as
+    # the first choice on Unix-like systems with traditional wxWidgets installs.
+    set(_neo_prefer_wx_config_package OFF)
+    if(WIN32 OR DEFINED VCPKG_TARGET_TRIPLET OR CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg.cmake")
+        set(_neo_prefer_wx_config_package ON)
+    endif()
+
+    if(_neo_prefer_wx_config_package)
+        find_package(wxWidgets CONFIG QUIET COMPONENTS ${NEO2DA_WX_COMPONENTS})
+        if(NOT wxWidgets_FOUND AND NOT TARGET wx::core AND NOT TARGET wxWidgets::wxWidgets)
+            find_package(wxWidgets CONFIG QUIET)
+        endif()
+        if(NOT wxWidgets_FOUND AND NOT TARGET wx::core AND NOT TARGET wxWidgets::wxWidgets)
+            find_package(wxWidgets QUIET MODULE COMPONENTS ${NEO2DA_WX_COMPONENTS})
+        endif()
+    else()
+        find_package(wxWidgets QUIET MODULE COMPONENTS ${NEO2DA_WX_COMPONENTS})
+        if(NOT wxWidgets_FOUND AND NOT TARGET wx::core AND NOT TARGET wxWidgets::wxWidgets)
+            find_package(wxWidgets CONFIG QUIET COMPONENTS ${NEO2DA_WX_COMPONENTS})
+        endif()
+        if(NOT wxWidgets_FOUND AND NOT TARGET wx::core AND NOT TARGET wxWidgets::wxWidgets)
+            find_package(wxWidgets CONFIG QUIET)
+        endif()
     endif()
 
     if(wxWidgets_FOUND OR TARGET wx::core OR TARGET wxWidgets::wxWidgets)
@@ -120,6 +176,7 @@ if(NEO2DA_BUILD_WX_GUI)
         endif()
         target_link_libraries(Neo2DA PRIVATE neo2da_core)
         target_include_directories(Neo2DA PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
+        target_link_libraries(Neo2DA PRIVATE neoshared::wx)
         neo2da_link_wx(Neo2DA)
         target_compile_features(Neo2DA PRIVATE cxx_std_17)
         if(MSVC)
@@ -145,10 +202,11 @@ if(NEO2DA_BUILD_WX_GUI)
             )
         endif()
     elseif(NEO2DA_REQUIRE_WX_GUI)
-        message(FATAL_ERROR "wxWidgets was not found, but NEO2DA_REQUIRE_WX_GUI is ON. With vcpkg, run: C:/vcpkg/vcpkg.exe install wxwidgets:x64-windows-static and configure with -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-static.")
+        message(FATAL_ERROR "wxWidgets was not found, but NEO2DA_REQUIRE_WX_GUI is ON. On Windows, install the pinned wxWidgets 3.3.3 overlay with ../neoshared/scripts/install-wxwidgets.ps1 and configure with the vcpkg toolchain. On Debian or Ubuntu, install libwxgtk3.2-dev.")
     else()
         message(WARNING "wxWidgets was not found. Core and CLI targets will still build; install wxWidgets to build Neo2DA.")
     endif()
 endif()
 
 neo_force_static_msvc_runtime_for_directory_targets()
+neo_apply_minimal_release_to_directory_targets()

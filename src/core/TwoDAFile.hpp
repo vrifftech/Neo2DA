@@ -38,6 +38,7 @@ public:
     bool dirty() const noexcept { return dirty_; }
     void setDirty(bool dirty) noexcept { dirty_ = dirty; }
     std::string nativeFormatName() const;
+    bool isGda() const noexcept { return nativeFormat_ == NativeFormat::GDA; }
     const std::filesystem::path& filename() const noexcept { return filename_; }
     void setFilename(std::filesystem::path filename) { filename_ = std::move(filename); }
 

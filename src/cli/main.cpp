@@ -29,8 +29,8 @@ void printUsage(std::ostream& out) {
         << "  neo2da-cli search <file.2da|file.gda> <term>\n"
         << "  neo2da-cli export <file.2da|file.gda> <csv|tsv> <output> [filter-term]\n"
         << "  neo2da-cli import <input-table> <csv|tsv> <output.2da|output.gda>\n"
-        << "  neo2da-cli diff-tslpatcher <original.2da|original.gda> <modified-input> <output-dir|fragment.ini> [--modified-format csv|tsv|2da|gda|native|auto] [--package|--fragment] [--filename name] [--allow-unsupported]\n"
-        << "  neo2da-cli diff-tslpatcher-import <original.2da|original.gda> <modified-input> <csv|tsv|2da|gda|native|auto> <output-dir|fragment.ini> [--package|--fragment] [--filename name] [--allow-unsupported]\n"
+        << "  neo2da-cli diff-tslpatcher <original.2da> <modified-input> <output-dir|fragment.ini> [--modified-format csv|tsv|2da|native|auto] [--package|--fragment] [--filename name] [--allow-unsupported]\n"
+        << "  neo2da-cli diff-tslpatcher-import <original.2da> <modified-input> <csv|tsv|2da|native|auto> <output-dir|fragment.ini> [--package|--fragment] [--filename name] [--allow-unsupported]\n"
         << "  neo2da-cli roundtrip <input.2da|input.gda> <output.2da|output.gda>\n"
         << "  neo2da-cli new <output.2da|output.gda> <column> [column...]\n"
         << "  neo2da-cli gda-hash <column-name> [column-name...]\n"
@@ -46,8 +46,9 @@ void printUsage(std::ostream& out) {
         << "Rows and columns are zero-based numeric indexes by default. Non-numeric\n"
         << "row/column arguments are resolved as case-insensitive labels. Use row:LABEL\n"
         << "or col:LABEL to force label lookup when the label is numeric.\n"
-        << "The import command accepts CSV/TSV only. For patch diffs, 2da/gda/native mean a native 2DA/GDA modified table;\n"
-        << "auto selects csv/tsv/2da/gda by extension and otherwise falls back to 2DA. XML/JSON are not supported by Neo2DA.\n";
+        << "The import command accepts CSV/TSV only. For patch diffs, 2da/native mean a native KotOR 2DA modified table;\n"
+        << "auto selects csv/tsv/2da by extension and otherwise falls back to 2DA. XML/JSON are not supported by Neo2DA.\n"
+        << "TSLPatcher/HoloPatcher [2DAList] output supports KotOR-style 2DA files only; Dragon Age GDA files remain editable but are not valid patcher inputs.\n";
 }
 
 std::size_t parseIndex(const std::string& text, const std::string& what) {
@@ -195,6 +196,14 @@ PatchOutputOptions parsePatchOutputOptions(int argc, char** argv, int begin, con
     return options;
 }
 
+void requireKotORPatcherTwoDA(const TwoDAFile& table, const std::string& role) {
+    if (table.isGda()) {
+        throw neo2da::TwoDAError(
+            role + " is a Dragon Age GDA file. TSLPatcher/HoloPatcher [2DAList] supports KotOR-style 2DA files only; "
+                   "use Neo2DA's native GDA save or CSV/TSV interchange instead.");
+    }
+}
+
 void writePatchOutput(const neotsl::PatchProject& project, const std::filesystem::path& output, const PatchOutputOptions& options) {
     if (!options.allowUnsupported) neotsl::throwIfUnsupported(project);
     else neotsl::printReport(project);
@@ -304,6 +313,8 @@ int main(int argc, char** argv) {
                 options.modifiedFormat = argv[4];
                 TwoDAFile original(originalPath);
                 TwoDAFile modified = loadTwoDAFromImport(modifiedPath, options.modifiedFormat);
+                requireKotORPatcherTwoDA(original, "The original patch baseline");
+                requireKotORPatcherTwoDA(modified, "The modified patch input");
                 auto project = neotsl::diffTwoDA(original.toTable(), modified.toTable(), options.patchFilename, options.package, originalPath);
                 writePatchOutput(project, output, options);
                 return 0;
@@ -312,6 +323,8 @@ int main(int argc, char** argv) {
             options = parsePatchOutputOptions(argc, argv, optionsBegin, originalPath);
             TwoDAFile original(originalPath);
             TwoDAFile modified = loadTwoDAFromImport(modifiedPath, options.modifiedFormat);
+            requireKotORPatcherTwoDA(original, "The original patch baseline");
+            requireKotORPatcherTwoDA(modified, "The modified patch input");
             auto project = neotsl::diffTwoDA(original.toTable(), modified.toTable(), options.patchFilename, options.package, originalPath);
             writePatchOutput(project, output, options);
             return 0;
