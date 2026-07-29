@@ -19,6 +19,7 @@
 #include <wx/sizer.h>
 #include <wx/wx.h>
 #include <wx/version.h>
+#include <wx/wrapsizer.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -127,8 +128,7 @@ public:
         fontScaleWheelFilter_.attach(this, [this](int steps) { changeFontScaleSteps(steps); });
         neoview::bindFontScaleDpiRefresh(this, [this]() { applyFontScale(); });
         applyDarkMode();
-        SetMinSize(FromDIP(wxSize(760, 500)));
-        SetInitialSize(FromDIP(wxSize(1050, 720)));
+        wxui::configureResponsiveWindow(*this, wxSize(1050, 720), wxSize(620, 420));
         settings_.restoreWindowPlacement(*this);
         createDocumentTab(false);
     }
@@ -470,16 +470,19 @@ private:
         grid_->SetSelectionMode(wxGrid::wxGridSelectCells);
         root->Add(grid_, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
 
-        auto* buttons = new wxBoxSizer(wxHORIZONTAL);
-        buttons->Add(new wxButton(panel, ID_AddRow, "Add Row..."), 0, wxRIGHT, 6);
-        buttons->Add(new wxButton(panel, ID_AddColumn, "Add Column..."), 0, wxRIGHT, 6);
-        buttons->Add(new wxButton(panel, ID_CloneRow, "Clone Row..."), 0, wxRIGHT, 6);
-        buttons->Add(new wxButton(panel, ID_DeleteRow, "Delete Row"), 0, wxRIGHT, 6);
-        buttons->Add(new wxButton(panel, ID_DeleteColumn, "Delete Column"), 0, wxRIGHT, 6);
-        buttons->AddStretchSpacer();
-        buttons->Add(new wxButton(panel, ID_RenameRow, "Rename Row..."), 0, wxRIGHT, 6);
-        buttons->Add(new wxButton(panel, ID_RenameColumn, "Rename Column..."), 0);
-        root->Add(buttons, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+        auto* buttons = new wxWrapSizer(wxHORIZONTAL);
+        const auto addCommandButton = [&](int id, const wxString& label) {
+            buttons->Add(new wxButton(panel, id, label), 0,
+                         wxRIGHT | wxBOTTOM, FromDIP(6));
+        };
+        addCommandButton(ID_AddRow, "Add Row...");
+        addCommandButton(ID_AddColumn, "Add Column...");
+        addCommandButton(ID_CloneRow, "Clone Row...");
+        addCommandButton(ID_DeleteRow, "Delete Row");
+        addCommandButton(ID_DeleteColumn, "Delete Column");
+        addCommandButton(ID_RenameRow, "Rename Row...");
+        addCommandButton(ID_RenameColumn, "Rename Column...");
+        root->Add(buttons, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(2));
 
         panel->SetSizer(root);
 
