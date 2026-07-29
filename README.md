@@ -29,66 +29,39 @@ Dragon Age
 - CSV and TSV import/export for spreadsheet workflows.
 - TSLPatcher/HoloPatcher diff output for representable 2DA/GDA changes.
 
-## Requirements
+## Build
 
-CLI-only builds require:
+This repository consumes shared code from the separate `neoshared` repository. Clone the repositories as siblings:
 
-- CMake 3.16 or newer.
-- A C++17 compiler.
-
-GUI builds also require wxWidgets with `core`, `base`, and `adv` components.
-
-On Debian/Ubuntu-style Linux systems:
-
-```sh
-sudo apt update
-sudo apt install -y build-essential cmake ninja-build
-sudo apt install -y pkg-config libwxgtk3.2-dev   # GUI builds only
+```text
+workspace/
+  neoshared/
+  Neo2DA/
 ```
 
-On Windows, use Visual Studio 2022 Build Tools or newer. For the GUI, install wxWidgets yourself or through vcpkg, for example:
+CMake automatically detects `../neoshared`. For another layout, pass `--neoshared-root /path/to/neoshared` to `build.sh`, `-NeoSharedRoot C:\path\to\neoshared` to `build.ps1`, or set `NEOSHARED_ROOT` directly.
 
-```powershell
-C:\vcpkg\vcpkg.exe install wxwidgets:x64-windows-static
-```
 
-## Build on Linux
-
-From the Neo2DA directory:
-
-```sh
-./scripts/build.sh --wx OFF --jobs "$(nproc)"
-```
-
-Build the GUI when wxWidgets is installed:
+Linux GUI build:
 
 ```sh
 ./scripts/build.sh --wx ON --require-wx ON --jobs "$(nproc)"
 ```
 
-Clean and rebuild:
+Linux CLI/core-only build:
 
 ```sh
-./scripts/build.sh --clean --wx OFF --jobs "$(nproc)"
+./scripts/build.sh --wx OFF --jobs "$(nproc)"
 ```
 
-The default output directory is:
-
-```text
-build/
-```
-
-## Build on Windows
-
-From the Neo2DA directory:
+Windows GUI build with the shared, pinned wxWidgets 3.3.3 overlay:
 
 ```powershell
-.\scripts\build.ps1 -Wx OFF -Parallel ([Environment]::ProcessorCount)
-```
+& ..\neoshared\scripts\install-wxwidgets.ps1 `
+  -VcpkgRoot C:\vcpkg `
+  -Triplet x64-windows-static `
+  -CleanAfterBuild
 
-Build the GUI with vcpkg wxWidgets:
-
-```powershell
 .\scripts\build.ps1 `
   -Wx ON `
   -RequireWx ON `
@@ -97,11 +70,7 @@ Build the GUI with vcpkg wxWidgets:
   -Parallel ([Environment]::ProcessorCount)
 ```
 
-Clean and rebuild:
-
-```powershell
-.\scripts\build.ps1 -Clean -Wx OFF -Parallel ([Environment]::ProcessorCount)
-```
+Use `-Wx OFF` on Windows for a CLI/core-only build. The default build directory is `build/`.
 
 ## Common CLI commands
 
