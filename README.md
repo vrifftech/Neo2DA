@@ -1,6 +1,6 @@
 # Neo2DA
 
-Neo2DA v1.1.0 is a standalone C++17 editor for BioWare `2DA` tables and Dragon Age `GDA` / `G2DA` tables. It includes a command-line tool and an optional wxWidgets desktop GUI.
+Neo2DA v1.1.0 is a standalone C++17 editor for BioWare `2DA` tables and Dragon Age `GDA` / `G2DA` tables.
 
 
 Compatible Games:
@@ -111,7 +111,7 @@ B22D0123      name
 Generate entries from known column names:
 
 ```sh
-neo2da-cli gda-hash ID COUNT script label worksheet
+neo2da gda-hash ID COUNT script label worksheet
 ```
 
 Neo2DA preserves unresolved column hashes on save unless the user explicitly renames the column.
