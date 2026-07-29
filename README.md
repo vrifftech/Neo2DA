@@ -1,6 +1,6 @@
 # Neo2DA
 
-Neo2DA v1.1.0 is a standalone C++17 editor for BioWare `2DA` tables and Dragon Age `GDA` / `G2DA` tables.
+Neo2DA v1.2.0 is a standalone editor for BioWare `2DA` tables and Dragon Age `GDA` / `G2DA` tables.
 
 
 Compatible Games:
