@@ -4,6 +4,7 @@
 #include "NeoGameDirectoryMenu.hpp"
 #include "NeoDocumentTabs.hpp"
 #include "NeoSettings.hpp"
+#include "NeoPatcherExport.hpp"
 #include "NeoViewState.hpp"
 #include "neo2da_icon.xpm"
 #include "TabularData.hpp"
@@ -29,6 +30,9 @@
 #include <string>
 #include <stdexcept>
 #include <vector>
+
+static_assert(wxui::kPatcherExportUiApiVersion >= 3u,
+              "Neo2DA requires the exact-INI/Fragment patch-export UI from the current neoshared checkout.");
 
 namespace {
 
@@ -103,8 +107,7 @@ enum : int {
     ID_ImportTsv,
     ID_ExportCsv,
     ID_ExportTsv,
-    ID_GeneratePatcherPackage,
-    ID_GeneratePatcherFragment,
+    ID_GeneratePatcher,
     ID_DarkMode,
     ID_FontIncrease,
     ID_FontDecrease,
@@ -335,8 +338,7 @@ private:
         exportMenu->Append(ID_ExportTsv, "Export as &TSV...");
 
         auto* tools = new wxMenu;
-        tools->Append(ID_GeneratePatcherPackage, "Generate TSLPatcher/HoloPatcher &Package...");
-        tools->Append(ID_GeneratePatcherFragment, "Generate TSLPatcher/HoloPatcher INI &Fragment...");
+        tools->Append(ID_GeneratePatcher, "Generate TSLPatcher/HoloPatcher Instructions...");
 
         auto* edit = new wxMenu;
         edit->Append(ID_CopyCells, "&Copy Cells	Ctrl-C");
@@ -408,8 +410,7 @@ private:
         Bind(wxEVT_MENU, [this](wxCommandEvent&) { onImport(neotabular::Format::Tsv); }, ID_ImportTsv);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) { onExport(neotabular::Format::Csv); }, ID_ExportCsv);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) { onExport(neotabular::Format::Tsv); }, ID_ExportTsv);
-        Bind(wxEVT_MENU, [this](wxCommandEvent&) { onGeneratePatcherOutput(true); }, ID_GeneratePatcherPackage);
-        Bind(wxEVT_MENU, [this](wxCommandEvent&) { onGeneratePatcherOutput(false); }, ID_GeneratePatcherFragment);
+        Bind(wxEVT_MENU, [this](wxCommandEvent&) { onGeneratePatcherOutput(); }, ID_GeneratePatcher);
         Bind(wxEVT_MENU, &Neo2DAFrame::onToggleDarkMode, this, ID_DarkMode);
         Bind(wxEVT_MENU, &Neo2DAFrame::onIncreaseFontScale, this, ID_FontIncrease);
         Bind(wxEVT_MENU, &Neo2DAFrame::onDecreaseFontScale, this, ID_FontDecrease);
@@ -940,7 +941,7 @@ private:
         event.Skip();
     }
 
-    void onGeneratePatcherOutput(bool package) {
+    void onGeneratePatcherOutput() {
         try {
             if (table().isGda()) {
                 throw std::runtime_error(
@@ -953,20 +954,32 @@ private:
             if (original.isGda()) {
                 throw std::runtime_error("The selected baseline is a Dragon Age GDA file; choose a KotOR-style 2DA file.");
             }
+
+            const auto output = wxui::choosePatcherOutput(this);
+            if (!output) return;
+            const bool writeToIni = output->writesToIni();
+
             const std::string patchFilename = originalPath->filename().string().empty() ? std::string("table.2da") : originalPath->filename().string();
-            auto project = neotsl::diffTwoDA(original.toTable(), table().toTable(), patchFilename, package, *originalPath);
+            auto project = neotsl::diffTwoDA(original.toTable(), table().toTable(), patchFilename, writeToIni, *originalPath);
             neotsl::throwIfUnsupported(project);
-            if (package) {
-                wxDirDialog dialog(this, "Choose tslpatchdata output folder", wxEmptyString, wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
-                if (dialog.ShowModal() != wxID_OK) return;
-                neotsl::writePackage(project, std::filesystem::path(wxui::toStd(dialog.GetPath())), true);
-                wxui::showMessage(this, "Patcher Package Generated", "Wrote changes.ini and staged files to the selected folder.");
-            } else {
-                const auto output = wxui::chooseSaveFile(this, "Save changes.ini fragment", "INI files (*.ini)|*.ini|All files (*.*)|*.*", "changes_fragment.ini");
-                if (!output) return;
-                neotsl::writeFragment(project, *output);
-                wxui::showMessage(this, "Patcher Fragment Generated", "Wrote the TSLPatcher/HoloPatcher INI fragment.");
+
+            if (!writeToIni) {
+                wxui::showIniFragmentDialog(
+                    this,
+                    "2DA Patcher INI Fragment",
+                    project,
+                    {patchFilename});
+                return;
             }
+
+            const auto report = neotsl::writePackageToIni(project, output->iniPath, true);
+            wxui::showMessage(
+                this,
+                "Patcher Package Generated",
+                std::string(report.mergedExisting ? "Merged the generated 2DA instructions into:\n"
+                                                  : "Created the installer INI:\n") +
+                    neosettings::pathToUtf8(report.iniPath) +
+                    "\n\nRequired package files were staged beside the selected INI.");
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }

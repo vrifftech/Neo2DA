@@ -29,8 +29,8 @@ void printUsage(std::ostream& out) {
         << "  neo2da-cli search <file.2da|file.gda> <term>\n"
         << "  neo2da-cli export <file.2da|file.gda> <csv|tsv> <output> [filter-term]\n"
         << "  neo2da-cli import <input-table> <csv|tsv> <output.2da|output.gda>\n"
-        << "  neo2da-cli diff-tslpatcher <original.2da> <modified-input> <output-dir|fragment.ini> [--modified-format csv|tsv|2da|native|auto] [--package|--fragment] [--filename name] [--allow-unsupported]\n"
-        << "  neo2da-cli diff-tslpatcher-import <original.2da> <modified-input> <csv|tsv|2da|native|auto> <output-dir|fragment.ini> [--package|--fragment] [--filename name] [--allow-unsupported]\n"
+        << "  neo2da-cli diff-tslpatcher <original.2da> <modified-input> <output-dir|fragment.ini> [--modified-format csv|tsv|2da|native|auto] [--package|--fragment] [--filename name] [--ini installer.ini] [--allow-unsupported]\n"
+        << "  neo2da-cli diff-tslpatcher-import <original.2da> <modified-input> <csv|tsv|2da|native|auto> <output-dir|fragment.ini> [--package|--fragment] [--filename name] [--ini installer.ini] [--allow-unsupported]\n"
         << "  neo2da-cli roundtrip <input.2da|input.gda> <output.2da|output.gda>\n"
         << "  neo2da-cli new <output.2da|output.gda> <column> [column...]\n"
         << "  neo2da-cli gda-hash <column-name> [column-name...]\n"
@@ -170,6 +170,7 @@ struct PatchOutputOptions {
     bool allowUnsupported = false;
     std::string patchFilename;
     std::string modifiedFormat = "auto";
+    std::filesystem::path iniFilename = "changes.ini";
 };
 
 PatchOutputOptions parsePatchOutputOptions(int argc, char** argv, int begin, const std::filesystem::path& original) {
@@ -184,6 +185,9 @@ PatchOutputOptions parsePatchOutputOptions(int argc, char** argv, int begin, con
         } else if (arg == "--filename") {
             if (i + 1 >= argc) throw neo2da::TwoDAError("--filename requires a value.");
             options.patchFilename = argv[++i];
+        } else if (arg == "--ini") {
+            if (i + 1 >= argc) throw neo2da::TwoDAError("--ini requires a filename.");
+            options.iniFilename = argv[++i];
         } else if (arg == "--modified-format" || arg == "--input-format") {
             if (i + 1 >= argc) throw neo2da::TwoDAError(arg + " requires a value.");
             options.modifiedFormat = argv[++i];
@@ -207,8 +211,14 @@ void requireKotORPatcherTwoDA(const TwoDAFile& table, const std::string& role) {
 void writePatchOutput(const neotsl::PatchProject& project, const std::filesystem::path& output, const PatchOutputOptions& options) {
     if (!options.allowUnsupported) neotsl::throwIfUnsupported(project);
     else neotsl::printReport(project);
-    if (options.package) neotsl::writePackage(project, output, true);
-    else neotsl::writeFragment(project, output);
+    if (options.package) {
+        const std::filesystem::path iniPath = options.iniFilename.is_absolute()
+            ? options.iniFilename
+            : output / options.iniFilename;
+        neotsl::writePackageToIni(project, iniPath, true);
+    } else {
+        neotsl::writeFragment(project, output);
+    }
 }
 
 std::vector<std::string> collectArgs(int argc, char** argv, int begin) {
