@@ -27,6 +27,7 @@
 #include <exception>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <stdexcept>
 #include <vector>
@@ -121,7 +122,7 @@ constexpr int kClearRecentFilesId = kRecentFileBaseId + neosettings::kMaxRecentF
 class Neo2DAFrame final : public wxFrame {
 public:
     Neo2DAFrame()
-        : wxFrame(nullptr, wxID_ANY, wxui::toWx(std::string("Neo2DA v") + kNeo2DAVersion + " (2DA table editor)"), wxDefaultPosition, wxDefaultSize) {
+        : wxFrame(nullptr, wxID_ANY, wxui::toWx(std::string("Neo2DA v") + kVersion + " (2DA table editor)"), wxDefaultPosition, wxDefaultSize) {
         setApplicationIcon();
         buildMenus();
         buildMainWindow();
@@ -417,7 +418,7 @@ private:
         Bind(wxEVT_MENU, &Neo2DAFrame::onResetFontScale, this, ID_FontReset);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) { Close(); }, wxID_EXIT);
         Bind(wxEVT_MENU, [this](wxCommandEvent&) {
-            wxui::showMessage(this, "About Neo2DA", std::string("Neo2DA v") + kNeo2DAVersion + "\nNative wxWidgets 2DA table editor\n\nA special thanks to everyone in the KOTOR modding community that has contributed their work, knowledge, and creativity to making tools, mods, and guides over the last 20+ years");
+            wxui::showMessage(this, "About Neo2DA", std::string("Neo2DA v") + kVersion + "\nNative wxWidgets 2DA table editor\n\nA special thanks to everyone in the KOTOR modding community that has contributed their work, knowledge, and creativity to making tools, mods, and guides over the last 20+ years");
         }, wxID_ABOUT);
         Bind(wxEVT_BUTTON, &Neo2DAFrame::onOpen, this, ID_Open);
         Bind(wxEVT_BUTTON, &Neo2DAFrame::onSave, this, ID_Save);
@@ -941,16 +942,14 @@ private:
         event.Skip();
     }
 
-    void onGeneratePatcherOutput() {
+    void generatePatcherOutputFromOriginal(const std::filesystem::path& originalPath) {
         try {
             if (table().isGda()) {
                 throw std::runtime_error(
                     "TSLPatcher/HoloPatcher [2DAList] supports KotOR-style 2DA files only. "
                     "Dragon Age GDA files can be edited and exported as CSV/TSV, but cannot be emitted as 2DA patch instructions.");
             }
-            const auto originalPath = wxui::chooseOpenFile(this, "Choose original/base KotOR 2DA", "KotOR 2DA files (*.2da)|*.2da|All files (*.*)|*.*");
-            if (!originalPath) return;
-            TwoDAFile original(*originalPath);
+            TwoDAFile original(originalPath);
             if (original.isGda()) {
                 throw std::runtime_error("The selected baseline is a Dragon Age GDA file; choose a KotOR-style 2DA file.");
             }
@@ -959,8 +958,8 @@ private:
             if (!output) return;
             const bool writeToIni = output->writesToIni();
 
-            const std::string patchFilename = originalPath->filename().string().empty() ? std::string("table.2da") : originalPath->filename().string();
-            auto project = neotsl::diffTwoDA(original.toTable(), table().toTable(), patchFilename, writeToIni, *originalPath);
+            const std::string patchFilename = originalPath.filename().string().empty() ? std::string("table.2da") : originalPath.filename().string();
+            auto project = neotsl::diffTwoDA(original.toTable(), table().toTable(), patchFilename, writeToIni, originalPath);
             neotsl::throwIfUnsupported(project);
 
             if (!writeToIni) {
@@ -985,11 +984,46 @@ private:
         }
     }
 
-    void onImport(neotabular::Format format) {
+    void onGeneratePatcherOutput() {
         try {
-            const auto chosen = wxui::chooseOpenFile(this, "Import " + neotabular::formatName(format), wildcardForFlatFormat(format));
-            if (!chosen) return;
-            const neotabular::Table imported = neotabular::readTable(*chosen, format);
+            if (table().isGda()) {
+                throw std::runtime_error(
+                    "TSLPatcher/HoloPatcher [2DAList] supports KotOR-style 2DA files only. "
+                    "Dragon Age GDA files can be edited and exported as CSV/TSV, but cannot be emitted as 2DA patch instructions.");
+            }
+#if defined(__EMSCRIPTEN__)
+            wxWindow* const targetPage = activeDocument().tabPage;
+            wxui::requestOpenFile(
+                this,
+                "Choose original/base KotOR 2DA",
+                "KotOR 2DA files (*.2da)|*.2da|All files (*.*)|*.*",
+                [this, targetPage](std::optional<std::filesystem::path> originalPath) {
+                    if (!originalPath || IsBeingDeleted()) return;
+                    if (!hasActiveDocument() || activeDocument().tabPage != targetPage) {
+                        wxui::showMessage(
+                            this,
+                            "Patcher Export Cancelled",
+                            "The active document changed while the baseline picker was open. Start the export again from the intended tab.");
+                        return;
+                    }
+                    generatePatcherOutputFromOriginal(*originalPath);
+                });
+#else
+            const auto originalPath = wxui::chooseOpenFile(
+                this,
+                "Choose original/base KotOR 2DA",
+                "KotOR 2DA files (*.2da)|*.2da|All files (*.*)|*.*");
+            if (!originalPath) return;
+            generatePatcherOutputFromOriginal(*originalPath);
+#endif
+        } catch (const std::exception& ex) {
+            wxui::showError(this, ex);
+        }
+    }
+
+    void importFromPath(neotabular::Format format, const std::filesystem::path& chosen) {
+        try {
+            const neotabular::Table imported = neotabular::readTable(chosen, format);
             ensureDocumentTabForOpen();
             table() = TwoDAFile::fromTable(imported);
             table().setFilename({});
@@ -1001,6 +1035,38 @@ private:
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }
+    }
+
+    void onImport(neotabular::Format format) {
+#if defined(__EMSCRIPTEN__)
+        wxWindow* const targetPage = activeDocument().tabPage;
+        wxui::requestOpenFile(
+            this,
+            "Import " + neotabular::formatName(format),
+            wildcardForFlatFormat(format),
+            [this, targetPage, format](std::optional<std::filesystem::path> chosen) {
+                if (!chosen || IsBeingDeleted()) return;
+                if (!hasActiveDocument() || activeDocument().tabPage != targetPage) {
+                    wxui::showMessage(
+                        this,
+                        "Import Cancelled",
+                        "The active document changed while the file picker was open. Start the import again from the intended tab.");
+                    return;
+                }
+                importFromPath(format, *chosen);
+            });
+#else
+        try {
+            const auto chosen = wxui::chooseOpenFile(
+                this,
+                "Import " + neotabular::formatName(format),
+                wildcardForFlatFormat(format));
+            if (!chosen) return;
+            importFromPath(format, *chosen);
+        } catch (const std::exception& ex) {
+            wxui::showError(this, ex);
+        }
+#endif
     }
 
     void onExport(neotabular::Format format) {
@@ -1086,15 +1152,29 @@ private:
     }
 
     void chooseAndOpen(const std::filesystem::path& initialDirectory = {}) {
+#if defined(__EMSCRIPTEN__)
+        wxui::requestOpenFile(
+            this,
+            "Open 2DA/GDA",
+            k2DAWildcard,
+            initialDirectory,
+            [this](std::optional<std::filesystem::path> chosen) {
+                if (!chosen || IsBeingDeleted()) return;
+                try {
+                    openTablePath(*chosen, true);
+                } catch (const std::exception& ex) {
+                    wxui::showError(this, ex);
+                }
+            });
+#else
         try {
             const auto chosen = wxui::chooseOpenFile(this, "Open 2DA/GDA", k2DAWildcard, initialDirectory);
-            if (!chosen) {
-                return;
-            }
+            if (!chosen) return;
             openTablePath(*chosen, true);
         } catch (const std::exception& ex) {
             wxui::showError(this, ex);
         }
+#endif
     }
 
     void onOpen(wxCommandEvent&) {

@@ -5,7 +5,6 @@ if(POLICY CMP0091)
 endif()
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
 
-project(Neo2DACpp VERSION 1.2.0 DESCRIPTION "C++17/wxWidgets 2DA table editor" LANGUAGES CXX)
 set(NEOSHARED_ROOT "" CACHE PATH
     "Path to the neoshared source repository; defaults to ../neoshared")
 
@@ -31,6 +30,14 @@ if(NOT EXISTS "${NEOSHARED_ROOT}/CMakeLists.txt")
         "Clone the neoshared repository beside this repository, or configure "
         "with -DNEOSHARED_ROOT=/path/to/neoshared.")
 endif()
+
+include("${NEOSHARED_ROOT}/cmake/NeoVersion.cmake")
+include("${NEOSHARED_ROOT}/cmake/NeoMacOSBundle.cmake")
+include("${NEOSHARED_ROOT}/cmake/NeoWasm.cmake")
+neo_read_version_header(NEO2DA_VERSION
+    "${CMAKE_CURRENT_LIST_DIR}/src/core/Version.hpp"
+    NEO2DA_VERSION_STRING)
+project(Neo2DACpp VERSION ${NEO2DA_VERSION} DESCRIPTION "C++17/wxWidgets 2DA table editor" LANGUAGES CXX)
 
 if(MSVC)
     foreach(_neo_runtime_flag_var IN ITEMS
@@ -164,7 +171,12 @@ if(NEO2DA_BUILD_WX_GUI)
     if(wxWidgets_FOUND OR TARGET wx::core OR TARGET wxWidgets::wxWidgets)
         set(NEO2DA_WX_SOURCES src/wx/main.cpp)
         if(WIN32)
-            list(APPEND NEO2DA_WX_SOURCES resources/neo2da.rc)
+            neo_configure_windows_version_resource(
+                NEO2DA_WX_SOURCES_RC
+                "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.rc.in"
+                "neo2da.rc"
+                "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.ico")
+            list(APPEND NEO2DA_WX_SOURCES "${NEO2DA_WX_SOURCES_RC}")
         endif()
 
         if(WIN32)
@@ -174,6 +186,16 @@ if(NEO2DA_BUILD_WX_GUI)
         else()
             add_executable(Neo2DA ${NEO2DA_WX_SOURCES})
         endif()
+        neo_configure_macos_bundle(Neo2DA
+            NAME "Neo2DA"
+            IDENTIFIER "com.vrifftech.neo2da"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.icns"
+        )
+        neo_configure_wasm_target(Neo2DA
+            NAME "Neo2DA"
+            SLUG "neo2da"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.svg"
+        )
         target_link_libraries(Neo2DA PRIVATE neo2da_core)
         target_include_directories(Neo2DA PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
         target_link_libraries(Neo2DA PRIVATE neoshared::wx)

@@ -21,7 +21,7 @@ namespace {
 using neo2da::TwoDAFile;
 
 void printUsage(std::ostream& out) {
-    out << "Neo2DA " << neo2da::kNeo2DAVersion << " C++ command-line utility\n"
+    out << "Neo2DA " << neo2da::kVersion << " C++ command-line utility\n"
         << "\n"
         << "Usage:\n"
         << "  neo2da-cli info <file.2da|file.gda>\n"
@@ -245,7 +245,7 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (command == "version" || command == "--version" || command == "-v") {
-            std::cout << "Neo2DA " << neo2da::kNeo2DAVersion << '\n';
+            std::cout << "Neo2DA " << neo2da::kVersion << '\n';
             return 0;
         }
 
