@@ -22,4 +22,4 @@ bash "$NEOSHARED_ROOT_VALUE/scripts/build-macos-app.sh" \
   --source-root "$ROOT_DIR" \
   --app-name "Neo2DA" \
   --neoshared-root "$NEOSHARED_ROOT_VALUE" \
-  "${FORWARD[@]}"
+  "${FORWARD[@]+"${FORWARD[@]}"}"

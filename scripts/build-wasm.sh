@@ -27,4 +27,4 @@ bash "$NEOSHARED_ROOT_VALUE/scripts/build-wasm-app.sh" \
   --option-prefix "NEO2DA" \
   --cli-option "NEO2DA_BUILD_CLI" \
   --icon "resources/neo2da.svg" \
-  "${forward[@]}"
+  "${forward[@]+"${forward[@]}"}"
