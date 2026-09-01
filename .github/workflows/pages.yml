@@ -62,6 +62,9 @@ jobs:
             .neo-wasm-deps/neo-wasm-versions.env
           key: wasm-${{ runner.os }}-${{ env.NEO_WASM_EMSCRIPTEN_VERSION }}-${{ env.NEO_WASM_WX_COMMIT }}-js-exceptions-v3-${{ hashFiles('neoshared/scripts/setup-wasm.sh', 'neoshared/scripts/build-wx-wasm.sh', 'neoshared/scripts/wasm-config-sub-wrapper.sh', 'neoshared/scripts/wasm-autom4te-wrapper.sh') }}
 
+      - name: Validate browser file lifecycle source
+        run: python3 tool/tests/wasm_file_lifecycle_regression.py
+
       - name: Build browser application
         working-directory: tool
         run: |

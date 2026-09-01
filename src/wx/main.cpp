@@ -1,4 +1,5 @@
 #include "core/TwoDAFile.hpp"
+#include "BrowserOpenSelection.hpp"
 #include "core/Version.hpp"
 #include "wx_ui.hpp"
 #include "NeoGameDirectoryMenu.hpp"
@@ -26,14 +27,20 @@
 #include <cstddef>
 #include <exception>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 static_assert(wxui::kPatcherExportUiApiVersion >= 3u,
               "Neo2DA requires the exact-INI/Fragment patch-export UI from the current neoshared checkout.");
+#if defined(__EMSCRIPTEN__)
+static_assert(neobrowser::kBrowserFileApiVersion >= 10u,
+              "Neo2DA requires owned browser imports and transactional write-back from the current neoshared checkout.");
+#endif
 
 namespace {
 
@@ -47,6 +54,10 @@ constexpr const char* k2DAWildcard =
     "All files (*.*)|*.*";
 constexpr const char* kCsvWildcard = "CSV files (*.csv)|*.csv";
 constexpr const char* kTsvWildcard = "TSV files (*.tsv)|*.tsv";
+
+#if defined(__EMSCRIPTEN__)
+constexpr const char* kBrowserTableAccept = ".2da,.gda,.tsv,.csv";
+#endif
 
 const char* wildcardForFlatFormat(neotabular::Format format) {
     switch (format) {
@@ -155,6 +166,10 @@ private:
         neoview::DocumentViewState viewState;
         std::string untitledName = "Untitled 2DA";
         wxWindow* tabPage = nullptr;
+        bool saveInProgress = false;
+#if defined(__EMSCRIPTEN__)
+        neobrowser::BrowserImportLease sourceImport;
+#endif
     };
 
     bool hasActiveDocument() const {
@@ -172,11 +187,18 @@ private:
         return neotabs::displayNameForPath(tab.table ? tab.table->filename() : std::filesystem::path{}, tab.untitledName);
     }
 
-    bool tabDirty(const DocumentTab& tab) const { return tab.table && tab.table->dirty(); }
+    bool tabDirty(const DocumentTab& tab) const {
+        return tab.saveInProgress || (tab.table && tab.table->dirty());
+    }
+
+    void updateDocumentTabTitle(DocumentTab& document) {
+        neotabs::setTabLabel(documentTabs_, document.tabPage,
+                             tabDisplayName(document), tabDirty(document));
+    }
 
     void updateActiveTabTitle() {
         if (!hasActiveDocument()) return;
-        neotabs::setTabLabel(documentTabs_, activeDocument().tabPage, tabDisplayName(activeDocument()), tabDirty(activeDocument()));
+        updateDocumentTabTitle(activeDocument());
     }
 
     void selectDocumentTab(std::size_t index) {
@@ -236,8 +258,44 @@ private:
         if (!activeTabIsReusableForOpen()) createDocumentTab(false);
     }
 
+#if defined(__EMSCRIPTEN__)
+    using BrowserImportCallback = std::function<void(neobrowser::BrowserImportLease)>;
+
+    void requestBrowserImport(const std::string& title,
+                              const std::string& accept,
+                              bool multiple,
+                              BrowserImportCallback callback) {
+        wxWeakRef<Neo2DAFrame> weakSelf(this);
+        neobrowser::requestOpenFilesOwned(
+            title, accept, multiple,
+            [weakSelf, callback = std::move(callback)](
+                neobrowser::OwnedOpenFilesResult result) mutable {
+                if (!weakSelf || weakSelf->IsBeingDeleted()) return;
+                auto* const frame = weakSelf.get();
+                if (!result.error.empty()) {
+                    wxMessageBox(wxui::toWx(result.error), "File Open Error",
+                                 wxOK | wxICON_ERROR, frame);
+                    return;
+                }
+                if (result.cancelled()) return;
+                callback(std::move(result.import));
+            });
+    }
+
+    static bool importOwnsPath(const neobrowser::BrowserImportLease& import,
+                               const std::filesystem::path& path) {
+        return std::find(import.paths().begin(), import.paths().end(), path) !=
+               import.paths().end();
+    }
+#endif
+
     bool confirmCloseDocumentTab(std::size_t index) {
         if (index >= documents_.size()) return true;
+        if (documents_[index].saveInProgress) {
+            wxui::showMessage(this, "Save in progress",
+                              "Finish the browser save transaction before closing this tab.");
+            return false;
+        }
         if (!tabDirty(documents_[index])) return true;
         return wxui::confirm(this, "Close tab", neotabs::closePromptText(tabDisplayName(documents_[index])));
     }
@@ -524,6 +582,16 @@ private:
         return true;
     }
 
+#if defined(__EMSCRIPTEN__)
+    bool openTablePath(const std::filesystem::path& path,
+                       neobrowser::BrowserImportLease import,
+                       bool checkDirty) {
+        if (!openTablePath(path, checkDirty)) return false;
+        activeDocument().sourceImport = std::move(import);
+        return true;
+    }
+#endif
+
     void rebuildRecentFilesMenu() {
         if (recentFilesMenu_ != nullptr) {
             neosettings::populateRecentFilesMenu(*recentFilesMenu_, settings_, kRecentFileBaseId, kClearRecentFilesId);
@@ -737,7 +805,10 @@ private:
         updateActiveTabTitle();
         filePath_->SetValue(wxui::toWx(pathText(table().filename())));
         const std::string name = table().filename().empty() ? "Untitled 2DA" : table().filename().filename().string();
-        wxui::setStatusText(*this, wxui::toWx(name + (table().dirty() ? " modified" : "")), 0);
+        const std::string state = activeDocument().saveInProgress
+            ? " saving..."
+            : (table().dirty() ? " modified" : "");
+        wxui::setStatusText(*this, wxui::toWx(name + state), 0);
         if (table().loaded()) {
             std::string detail = std::to_string(viewState().visualToLogicalRows.size()) + "/" +
                                  std::to_string(table().rowCount()) + " rows, " +
@@ -750,13 +821,77 @@ private:
         }
     }
 
-    void saveTo(const std::filesystem::path& path) {
-        table().save(path);
-        table().setFilename(path);
-        table().setDirty(false);
+    bool saveTo(const std::filesystem::path& path) {
+        if (path.empty() || !hasActiveDocument()) return false;
+        if (activeDocument().saveInProgress || browserSaveActive_) return false;
+
+        DocumentTab& document = activeDocument();
+        const bool wasDirty = document.table->dirty();
+        document.table->save(path);
+
+#if defined(__EMSCRIPTEN__)
+        document.saveInProgress = true;
+        browserSaveActive_ = true;
+        updateDocumentTabTitle(document);
+        updateStatus();
+        Enable(false);
+
+        wxWeakRef<Neo2DAFrame> weakSelf(this);
+        wxWindow* const targetPage = document.tabPage;
+        neobrowser::requestDownloadFile(
+            path,
+            path.filename().string(),
+            [weakSelf, targetPage, path, wasDirty](neobrowser::DownloadResult result) {
+                if (!weakSelf || weakSelf->IsBeingDeleted()) return;
+                auto* const frame = weakSelf.get();
+                frame->browserSaveActive_ = false;
+                frame->Enable(true);
+
+                const std::size_t index = neotabs::findDocumentIndexForPage(
+                    frame->documents_, targetPage);
+                if (index == neotabs::npos) return;
+
+                DocumentTab& savedDocument = frame->documents_[index];
+                savedDocument.saveInProgress = false;
+                if (!result.error.empty() || result.cancelled()) {
+                    savedDocument.table->setDirty(wasDirty);
+                    frame->updateDocumentTabTitle(savedDocument);
+                    if (index == frame->activeDocumentIndex_) frame->updateStatus();
+                    const std::string message = result.error.empty()
+                        ? "The browser save transaction was cancelled."
+                        : result.error;
+                    wxMessageBox(wxui::toWx(message), "Save Failed",
+                                 wxOK | wxICON_ERROR, frame);
+                    return;
+                }
+
+                savedDocument.table->setFilename(path);
+                savedDocument.table->setDirty(false);
+                if (!frame->importOwnsPath(savedDocument.sourceImport, path)) {
+                    savedDocument.sourceImport.reset();
+                }
+                frame->rememberRecentFile(path);
+                neogames::resolver().inferFromOpenedPath(path);
+                frame->updateDocumentTabTitle(savedDocument);
+                if (index == frame->activeDocumentIndex_) frame->updateStatus();
+
+                if (result.ready()) {
+                    wxui::showMessage(
+                        frame,
+                        "Replacement download ready",
+                        "The browser could not overwrite the original host file directly. "
+                        "A replacement file is ready in the download panel; download it before closing this page.");
+                }
+            });
+        return true;
+#else
+        document.table->setFilename(path);
+        document.table->setDirty(false);
         rememberRecentFile(path);
         neogames::resolver().inferFromOpenedPath(path);
         updateStatus();
+        return true;
+#endif
     }
 
     bool saveAs() {
@@ -765,8 +900,7 @@ private:
         if (!chosen) {
             return false;
         }
-        saveTo(*chosen);
-        return true;
+        return saveTo(*chosen);
     }
 
     int selectedRowOrCursor() const {
@@ -993,12 +1127,12 @@ private:
             }
 #if defined(__EMSCRIPTEN__)
             wxWindow* const targetPage = activeDocument().tabPage;
-            wxui::requestOpenFile(
-                this,
+            requestBrowserImport(
                 "Choose original/base KotOR 2DA",
-                "KotOR 2DA files (*.2da)|*.2da|All files (*.*)|*.*",
-                [this, targetPage](std::optional<std::filesystem::path> originalPath) {
-                    if (!originalPath || IsBeingDeleted()) return;
+                ".2da",
+                false,
+                [this, targetPage](neobrowser::BrowserImportLease import) {
+                    if (import.empty() || IsBeingDeleted()) return;
                     if (!hasActiveDocument() || activeDocument().tabPage != targetPage) {
                         wxui::showMessage(
                             this,
@@ -1006,7 +1140,7 @@ private:
                             "The active document changed while the baseline picker was open. Start the export again from the intended tab.");
                         return;
                     }
-                    generatePatcherOutputFromOriginal(*originalPath);
+                    generatePatcherOutputFromOriginal(import.paths().front());
                 });
 #else
             const auto originalPath = wxui::chooseOpenFile(
@@ -1040,12 +1174,12 @@ private:
     void onImport(neotabular::Format format) {
 #if defined(__EMSCRIPTEN__)
         wxWindow* const targetPage = activeDocument().tabPage;
-        wxui::requestOpenFile(
-            this,
+        requestBrowserImport(
             "Import " + neotabular::formatName(format),
-            wildcardForFlatFormat(format),
-            [this, targetPage, format](std::optional<std::filesystem::path> chosen) {
-                if (!chosen || IsBeingDeleted()) return;
+            "." + exportExtensionForFormat(format),
+            false,
+            [this, targetPage, format](neobrowser::BrowserImportLease import) {
+                if (import.empty() || IsBeingDeleted()) return;
                 if (!hasActiveDocument() || activeDocument().tabPage != targetPage) {
                     wxui::showMessage(
                         this,
@@ -1053,7 +1187,7 @@ private:
                         "The active document changed while the file picker was open. Start the import again from the intended tab.");
                     return;
                 }
-                importFromPath(format, *chosen);
+                importFromPath(format, import.paths().front());
             });
 #else
         try {
@@ -1153,15 +1287,16 @@ private:
 
     void chooseAndOpen(const std::filesystem::path& initialDirectory = {}) {
 #if defined(__EMSCRIPTEN__)
-        wxui::requestOpenFile(
-            this,
-            "Open 2DA/GDA",
-            k2DAWildcard,
-            initialDirectory,
-            [this](std::optional<std::filesystem::path> chosen) {
-                if (!chosen || IsBeingDeleted()) return;
+        (void)initialDirectory;
+        requestBrowserImport(
+            "Open 2DA/GDA (optionally select gda_column_names.tsv or .csv with a GDA)",
+            kBrowserTableAccept,
+            true,
+            [this](neobrowser::BrowserImportLease import) {
+                if (import.empty() || IsBeingDeleted()) return;
                 try {
-                    openTablePath(*chosen, true);
+                    const std::filesystem::path chosen = neo2da::browseropen::selectTablePath(import.paths());
+                    openTablePath(chosen, std::move(import), true);
                 } catch (const std::exception& ex) {
                     wxui::showError(this, ex);
                 }
@@ -1439,6 +1574,12 @@ private:
 
 
     void onClose(wxCloseEvent& event) {
+        if (browserSaveActive_ && event.CanVeto()) {
+            wxui::showMessage(this, "Save in progress",
+                              "Finish the browser save transaction before closing Neo2DA.");
+            event.Veto();
+            return;
+        }
         if (event.CanVeto() && !confirmCloseAllTabs()) {
             event.Veto();
             return;
@@ -1461,6 +1602,7 @@ private:
     std::vector<DocumentTab> documents_;
     std::size_t activeDocumentIndex_ = neotabs::npos;
     bool tabSwitchInProgress_ = false;
+    bool browserSaveActive_ = false;
     neoview::FontScaleWheelFilter fontScaleWheelFilter_;
     double fontScale_ = neoview::kDefaultFontScale;
     bool darkMode_ = false;

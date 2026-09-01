@@ -169,7 +169,10 @@ if(NEO2DA_BUILD_WX_GUI)
     endif()
 
     if(wxWidgets_FOUND OR TARGET wx::core OR TARGET wxWidgets::wxWidgets)
-        set(NEO2DA_WX_SOURCES src/wx/main.cpp)
+        set(NEO2DA_WX_SOURCES
+            src/wx/main.cpp
+            src/wx/BrowserOpenSelection.cpp
+        )
         if(WIN32)
             neo_configure_windows_version_resource(
                 NEO2DA_WX_SOURCES_RC
