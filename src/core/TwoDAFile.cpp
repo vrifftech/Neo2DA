@@ -1124,6 +1124,16 @@ void TwoDAFile::load(const std::filesystem::path& filename) {
         throw TwoDAError("Unable to open 2DA file: " + filename.string(), 0);
     }
 
+    loadStream(in, filename);
+}
+
+void TwoDAFile::loadBytes(const std::vector<std::uint8_t>& bytes) {
+    const std::string data(bytes.begin(), bytes.end());
+    std::istringstream in(data, std::ios::in | std::ios::binary);
+    loadStream(in, {});
+}
+
+void TwoDAFile::loadStream(std::istream& in, const std::filesystem::path& filename) {
     const std::string header = detail::readBytes(in, 8, "2DA/GDA header");
     TwoDAFile parsed;
     parsed.filename_ = filename;

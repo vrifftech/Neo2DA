@@ -3,7 +3,9 @@ cmake_minimum_required(VERSION 3.16)
 if(POLICY CMP0091)
     cmake_policy(SET CMP0091 NEW)
 endif()
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" FORCE)
+if(NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC runtime library" )
+endif()
 
 set(NEOSHARED_ROOT "" CACHE PATH
     "Path to the neoshared source repository; defaults to ../neoshared")
@@ -31,6 +33,11 @@ if(NOT EXISTS "${NEOSHARED_ROOT}/CMakeLists.txt")
         "with -DNEOSHARED_ROOT=/path/to/neoshared.")
 endif()
 
+if(NOT EXISTS "${NEOSHARED_ROOT}/include/neoshared/ResourceDocument.hpp" OR
+   NOT EXISTS "${NEOSHARED_ROOT}/wx/NeoModulePanel.hpp")
+    message(FATAL_ERROR "Neo2DA 1.3.1 requires the matched NeoShared resource/panel API update. Update NEOSHARED_REF or NEOSHARED_ROOT to that revision.")
+endif()
+
 include("${NEOSHARED_ROOT}/cmake/NeoVersion.cmake")
 include("${NEOSHARED_ROOT}/cmake/NeoMacOSBundle.cmake")
 include("${NEOSHARED_ROOT}/cmake/NeoWasm.cmake")
@@ -39,7 +46,7 @@ neo_read_version_header(NEO2DA_VERSION
     NEO2DA_VERSION_STRING)
 project(Neo2DACpp VERSION ${NEO2DA_VERSION} DESCRIPTION "C++17/wxWidgets 2DA table editor" LANGUAGES CXX)
 
-if(MSVC)
+if(MSVC AND NOT NEO_HOSTED_BUILD)
     foreach(_neo_runtime_flag_var IN ITEMS
         CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_C_FLAGS_MINSIZEREL
         CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_MINSIZEREL)
@@ -54,7 +61,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 function(neo_force_static_msvc_runtime target_name)
-    if(MSVC AND TARGET ${target_name})
+    if(MSVC AND TARGET ${target_name} AND NOT NEO_HOSTED_BUILD)
         set_property(TARGET ${target_name} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
         target_compile_options(${target_name} PRIVATE
             $<$<CONFIG:Debug>:/MTd>
@@ -91,8 +98,9 @@ option(NEO2DA_BUILD_CLI "Build the Neo2DA command-line utility" ON)
 add_library(neo2da_core
     src/core/Common.cpp
     src/core/TwoDAFile.cpp
+    src/core/ResourceDocument.cpp
 )
-target_include_directories(neo2da_core PUBLIC src)
+target_include_directories(neo2da_core PUBLIC src "${NEOSHARED_ROOT}/include")
 target_link_libraries(neo2da_core PUBLIC neoshared::tabular neoshared::tslpatcher)
 target_compile_features(neo2da_core PUBLIC cxx_std_17)
 if(MSVC)
@@ -117,7 +125,7 @@ option(NEO2DA_BUILD_WX_GUI "Build the wxWidgets desktop GUI when wxWidgets is av
 option(NEO2DA_REQUIRE_WX_GUI "Fail configure if wxWidgets is unavailable while NEO2DA_BUILD_WX_GUI is ON" OFF)
 
 function(neo2da_link_wx target_name)
-    target_compile_definitions(${target_name} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_compile_definitions(${target_name} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 
     set(_wx_targets)
     foreach(_wx_target IN ITEMS wx::core wx::base wx::adv wx::aui wxWidgets::wxWidgets)
@@ -127,20 +135,22 @@ function(neo2da_link_wx target_name)
     endforeach()
 
     if(_wx_targets)
-        target_link_libraries(${target_name} PRIVATE ${_wx_targets})
+        target_link_libraries(${target_name} PUBLIC ${_wx_targets})
     else()
         if(wxWidgets_USE_FILE)
             include(${wxWidgets_USE_FILE})
         endif()
-        target_include_directories(${target_name} SYSTEM PRIVATE ${wxWidgets_INCLUDE_DIRS})
-        target_compile_definitions(${target_name} PRIVATE ${wxWidgets_DEFINITIONS})
-        target_link_libraries(${target_name} PRIVATE ${wxWidgets_LIBRARIES})
+        target_include_directories(${target_name} SYSTEM PUBLIC ${wxWidgets_INCLUDE_DIRS})
+        target_compile_definitions(${target_name} PUBLIC ${wxWidgets_DEFINITIONS})
+        target_link_libraries(${target_name} PUBLIC ${wxWidgets_LIBRARIES})
     endif()
 
     neo_force_static_msvc_runtime(${target_name})
 endfunction()
 
-if(NEO2DA_BUILD_WX_GUI)
+option(NEO2DA_BUILD_WX_MODULE "Build the reusable wxWidgets panel" OFF)
+
+if(NEO2DA_BUILD_WX_GUI OR NEO2DA_BUILD_WX_MODULE)
     set(NEO2DA_WX_COMPONENTS core base adv aui)
     # vcpkg provides CMake package targets such as wx::core and wx::base.
     # Prefer CONFIG mode on Windows/vcpkg, but keep FindwxWidgets/wx-config as
@@ -169,9 +179,23 @@ if(NEO2DA_BUILD_WX_GUI)
     endif()
 
     if(wxWidgets_FOUND OR TARGET wx::core OR TARGET wxWidgets::wxWidgets)
+        add_library(neo2da_wx STATIC src/wx/EditorPanel.cpp src/wx/BrowserOpenSelection.cpp)
+        add_library(neo2da::wx ALIAS neo2da_wx)
+        target_include_directories(neo2da_wx PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        target_link_libraries(neo2da_wx PUBLIC neo2da_core neoshared::wx)
+        neo2da_link_wx(neo2da_wx)
+        if(NOT EMSCRIPTEN)
+            find_package(Threads REQUIRED)
+            target_link_libraries(neo2da_wx PUBLIC Threads::Threads)
+        endif()
+        if(MSVC)
+            target_compile_options(neo2da_wx PRIVATE /W4 /permissive-)
+        else()
+            target_compile_options(neo2da_wx PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+        if(NEO2DA_BUILD_WX_GUI)
         set(NEO2DA_WX_SOURCES
             src/wx/main.cpp
-            src/wx/BrowserOpenSelection.cpp
         )
         if(WIN32)
             neo_configure_windows_version_resource(
@@ -199,7 +223,7 @@ if(NEO2DA_BUILD_WX_GUI)
             SLUG "neo2da"
             ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.svg"
         )
-        target_link_libraries(Neo2DA PRIVATE neo2da_core)
+        target_link_libraries(Neo2DA PRIVATE neo2da_wx)
         target_include_directories(Neo2DA PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
         target_link_libraries(Neo2DA PRIVATE neoshared::wx)
         neo2da_link_wx(Neo2DA)
@@ -226,7 +250,8 @@ if(NEO2DA_BUILD_WX_GUI)
                 DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications
             )
         endif()
-    elseif(NEO2DA_REQUIRE_WX_GUI)
+        endif() # standalone application wrapper
+    elseif(NEO2DA_REQUIRE_WX_GUI OR NEO2DA_BUILD_WX_MODULE)
         message(FATAL_ERROR "wxWidgets was not found, but NEO2DA_REQUIRE_WX_GUI is ON. On Windows, install the pinned wxWidgets 3.3.3 overlay with ../neoshared/scripts/install-wxwidgets.ps1 and configure with the vcpkg toolchain. On Debian or Ubuntu, install libwxgtk3.2-dev.")
     else()
         message(WARNING "wxWidgets was not found. Core and CLI targets will still build; install wxWidgets to build Neo2DA.")

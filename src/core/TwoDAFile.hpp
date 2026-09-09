@@ -1,4 +1,5 @@
 #pragma once
+#include <istream>
 
 #include <array>
 #include <cstdint>
@@ -32,6 +33,8 @@ public:
     static TwoDAFile fromTable(const neotabular::Table& table);
 
     void load(const std::filesystem::path& filename);
+    // Loads archive bytes without assigning a writable source filename.
+    void loadBytes(const std::vector<std::uint8_t>& bytes);
     void save(const std::filesystem::path& filename) const;
 
     bool loaded() const noexcept { return loaded_; }
@@ -85,6 +88,7 @@ private:
 
     void requireLoaded(const std::string& message, int helpContext) const;
     void validateShape() const;
+    void loadStream(std::istream& in, const std::filesystem::path& filename);
     void loadGDA(std::istream& in, const std::filesystem::path& filename);
     void saveText2DA(const std::filesystem::path& filename) const;
     void saveBinary2DA(const std::filesystem::path& filename) const;
