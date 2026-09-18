@@ -87,6 +87,12 @@ endif()
 
 if(NEO2DA_BUILD_CLI)
     add_executable(neo2da-cli src/cli/main.cpp)
+    neo_add_windows_version_resource(neo2da-cli
+        VERSION "${PROJECT_VERSION}"
+        PRODUCT_NAME "Neo2DA"
+        FILE_DESCRIPTION "Neo2DA command-line 2DA/GDA table editor"
+        INTERNAL_NAME "neo2da-cli"
+        ORIGINAL_FILENAME "neo2da-cli.exe")
     target_link_libraries(neo2da-cli PRIVATE neo2da_core)
     if(MSVC)
         target_compile_options(neo2da-cli PRIVATE /W4 /permissive-)
@@ -174,21 +180,19 @@ if(NEO2DA_BUILD_WX_GUI OR NEO2DA_BUILD_WX_MODULE)
             src/wx/main.cpp
         )
         if(WIN32)
-            neo_configure_windows_version_resource(
-                NEO2DA_WX_SOURCES_RC
-                "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.rc.in"
-                "neo2da.rc"
-                "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.ico")
-            list(APPEND NEO2DA_WX_SOURCES "${NEO2DA_WX_SOURCES_RC}")
-        endif()
-
-        if(WIN32)
             add_executable(Neo2DA WIN32 ${NEO2DA_WX_SOURCES})
         elseif(APPLE)
             add_executable(Neo2DA MACOSX_BUNDLE ${NEO2DA_WX_SOURCES})
         else()
             add_executable(Neo2DA ${NEO2DA_WX_SOURCES})
         endif()
+        neo_add_windows_version_resource(Neo2DA
+            VERSION "${PROJECT_VERSION}"
+            PRODUCT_NAME "Neo2DA"
+            FILE_DESCRIPTION "Neo2DA 2DA/GDA table editor"
+            INTERNAL_NAME "Neo2DA"
+            ORIGINAL_FILENAME "Neo2DA.exe"
+            ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.ico")
         neo_configure_macos_bundle(Neo2DA
             NAME "Neo2DA"
             IDENTIFIER "com.vrifftech.neo2da"
