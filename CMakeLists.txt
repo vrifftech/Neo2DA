@@ -72,12 +72,10 @@ endif()
 option(NEO2DA_BUILD_CLI "Build the Neo2DA command-line utility" ON)
 
 add_library(neo2da_core
-    src/core/Common.cpp
-    src/core/TwoDAFile.cpp
     src/core/ResourceDocument.cpp
 )
 target_include_directories(neo2da_core PUBLIC src "${NEOSHARED_ROOT}/include")
-target_link_libraries(neo2da_core PUBLIC neoshared::tabular neoshared::tslpatcher)
+target_link_libraries(neo2da_core PUBLIC neoshared::twoda neoshared::tabular neoshared::tslpatcher)
 target_compile_features(neo2da_core PUBLIC cxx_std_17)
 if(MSVC)
     target_compile_options(neo2da_core PRIVATE /W4 /permissive-)
