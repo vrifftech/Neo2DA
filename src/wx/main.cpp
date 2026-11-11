@@ -37,7 +37,7 @@ private:
 };
 class Neo2DAApp final:public wxApp {
 public:bool OnInit()override {
-    SetAppName("Neo2DA");SetVendorName("Neo Tools");wxInitAllImageHandlers();
+    SetAppName("Neo2DA");SetVendorName("Neo Tools");wxui::initializeTheme("Neo2DA");wxInitAllImageHandlers();
     auto* frame=new Neo2DAFrame;frame->Show();
     if(argc>1){const auto path=neosettings::pathFromWx(wxString(argv[1]));frame->CallAfter([frame,path]{frame->openStartup(path);});}
     return true;
