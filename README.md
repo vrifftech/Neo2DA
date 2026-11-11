@@ -1,5 +1,9 @@
 # Neo2DA
 
+Support is offered in the OpenKotOR Discord.
+
+[![OpenKotOR Discord](https://discordapp.com/api/guilds/739590575359262792/widget.png?style=banner2)](https://discord.gg/OpenKotOR)
+
 Neo2DA v1.2.0 is a standalone editor for BioWare `2DA` tables and Dragon Age `GDA` / `G2DA` tables.
 
 
