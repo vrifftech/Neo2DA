@@ -1,6 +1,6 @@
 #pragma once
 
-#define NEO2DA_VERSION_STRING "1.3.3"
+#define NEO2DA_VERSION_STRING "1.3.4"
 
 namespace neo2da {
 
