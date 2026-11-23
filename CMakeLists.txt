@@ -201,6 +201,7 @@ if(NEO2DA_BUILD_WX_GUI OR NEO2DA_BUILD_WX_MODULE)
             SLUG "neo2da"
             ICON "${CMAKE_CURRENT_SOURCE_DIR}/resources/neo2da.svg"
         )
+        neo_enable_updates(Neo2DA "Neo2DA" "${PROJECT_VERSION}")
         target_link_libraries(Neo2DA PRIVATE neo2da_wx)
         target_include_directories(Neo2DA PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
         target_link_libraries(Neo2DA PRIVATE neoshared::wx)

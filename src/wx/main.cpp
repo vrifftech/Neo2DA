@@ -1,3 +1,4 @@
+#include "NeoUpdater.hpp"
 #include "EditorPanel.hpp"
 #include "core/Version.hpp"
 #include "neo2da_icon.xpm"
@@ -39,6 +40,10 @@ class Neo2DAApp final:public wxApp {
 public:bool OnInit()override {
     SetAppName("Neo2DA");SetVendorName("Neo Tools");wxui::initializeTheme("Neo2DA");wxInitAllImageHandlers();
     auto* frame=new Neo2DAFrame;frame->Show();
+#if !defined(__EMSCRIPTEN__)
+        neoupdate::install(*frame, NEO_UPDATE_APPLICATION, NEO_UPDATE_VERSION);
+#endif
+
     if(argc>1){const auto path=neosettings::pathFromWx(wxString(argv[1]));frame->CallAfter([frame,path]{frame->openStartup(path);});}
     return true;
 }};
