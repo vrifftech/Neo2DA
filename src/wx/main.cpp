@@ -40,7 +40,7 @@ class Neo2DAApp final:public wxApp {
 public:bool OnInit()override {
     SetAppName("Neo2DA");SetVendorName("Neo Tools");wxui::initializeTheme("Neo2DA");wxInitAllImageHandlers();
     auto* frame=new Neo2DAFrame;frame->Show();
-#if !defined(__EMSCRIPTEN__)
+#if defined(NEO_UPDATE_APPLICATION)
         neoupdate::install(*frame, NEO_UPDATE_APPLICATION, NEO_UPDATE_VERSION);
 #endif
 
